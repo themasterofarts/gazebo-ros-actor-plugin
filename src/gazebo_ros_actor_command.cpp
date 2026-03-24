@@ -1,5 +1,10 @@
 #include <gazebo_ros_actor_plugin/gazebo_ros_actor_command.h>
 
+// ── Extra includes for pose publishing ───────────────────────────────────────
+#include <gz/msgs/pose.pb.h>        // gz::msgs::Pose
+#include <gz/msgs/time.pb.h>        // gz::msgs::Time  (for header stamp)
+#include <gz/transport/Node.hh>     // already pulled in by the header, but explicit here
+
 using namespace gazebo_ros_actor_plugin;
 
 GazeboRosActorCommand::GazeboRosActorCommand()
@@ -58,6 +63,13 @@ void GazeboRosActorCommand::Configure(
   }
   if (_sdf->HasElement("default_rotation")) {
     this->defaultRotation_ = _sdf->Get<double>("default_rotation");
+  }
+
+  // ── NEW: read optional pose_topic from SDF ────────────────────────────────
+  // Default: /actor/pose  — bridgeable as geometry_msgs/msg/Pose
+  this->poseTopic_ = "/actor/pose";
+  if (_sdf->HasElement("pose_topic")) {
+    this->poseTopic_ = _sdf->Get<std::string>("pose_topic");
   }
 
   std::string animationName;
@@ -139,6 +151,18 @@ void GazeboRosActorCommand::Configure(
 
   if (!this->node_.Subscribe(this->pathTopic_, &GazeboRosActorCommand::PathCallback, this)) {
     gzerr << "Failed to subscribe to path topic: " << this->pathTopic_ << std::endl;
+  }
+
+  // ── NEW: advertise pose publisher ─────────────────────────────────────────
+  this->posePub_ = this->node_.Advertise<gz::msgs::Pose>(this->poseTopic_);
+  if (!this->posePub_)
+  {
+    gzerr << "Failed to advertise pose topic: " << this->poseTopic_ << std::endl;
+  }
+  else
+  {
+    gzmsg << "[GazeboRosActorCommand] Publishing actor pose on: "
+          << this->poseTopic_ << std::endl;
   }
 
   this->lastUpdate_ = std::chrono::steady_clock::duration::zero();
@@ -305,6 +329,47 @@ void GazeboRosActorCommand::PreUpdate(
       this->actorEntity_,
       gz::sim::components::AnimationTime::typeId,
       gz::sim::ComponentState::OneTimeChange);
+  }
+
+  // ── NEW: publish actor pose ───────────────────────────────────────────────
+  // We publish newPose (the TrajectoryPose XY) combined with the Z from
+  // the regular Pose component so the full 3-D world pose is available.
+  if (this->posePub_)
+  {
+    // Retrieve Z from the static Pose component (set at spawn time)
+    double poseZ = 0.0;
+    auto poseComp = _ecm.Component<gz::sim::components::Pose>(this->actorEntity_);
+    if (poseComp)
+      poseZ = poseComp->Data().Pos().Z();
+
+    gz::msgs::Pose poseMsg;
+
+    // ── Header: simulation timestamp ────────────────────────────────────────
+    auto simTimeSec = std::chrono::duration_cast<std::chrono::seconds>(
+      _info.simTime);
+    auto simTimeNsec = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      _info.simTime - simTimeSec);
+
+    poseMsg.mutable_header()->mutable_stamp()->set_sec(
+      static_cast<int32_t>(simTimeSec.count()));
+    poseMsg.mutable_header()->mutable_stamp()->set_nsec(
+      static_cast<int32_t>(simTimeNsec.count()));
+
+    // ── Name (useful when bridging multiple actors) ──────────────────────────
+    poseMsg.set_name("walker_slow_red");
+
+    // ── Position ─────────────────────────────────────────────────────────────
+    poseMsg.mutable_position()->set_x(newPose.Pos().X());
+    poseMsg.mutable_position()->set_y(newPose.Pos().Y());
+    poseMsg.mutable_position()->set_z(poseZ);           // Z from spawn pose
+
+    // ── Orientation (full quaternion from integrated yaw) ────────────────────
+    poseMsg.mutable_orientation()->set_x(newPose.Rot().X());
+    poseMsg.mutable_orientation()->set_y(newPose.Rot().Y());
+    poseMsg.mutable_orientation()->set_z(newPose.Rot().Z());
+    poseMsg.mutable_orientation()->set_w(newPose.Rot().W());
+
+    this->posePub_.Publish(poseMsg);
   }
 }
 

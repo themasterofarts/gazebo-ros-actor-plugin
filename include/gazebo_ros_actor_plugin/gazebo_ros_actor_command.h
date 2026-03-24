@@ -25,6 +25,7 @@
 #include <gz/sim/components/Actor.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/Pose.hh>
+#include <gz/msgs/pose.pb.h>      // NEW: gz::msgs::Pose for pose publisher
 #include <gz/msgs/pose_v.pb.h>
 #include <gz/msgs/twist.pb.h>
 #include <gz/transport/Node.hh>
@@ -55,6 +56,11 @@ class GazeboRosActorCommand :
    gz::transport::Node node_;
    std::string velTopic_;
    std::string pathTopic_;
+
+   // NEW: pose publisher members
+   gz::transport::Node::Publisher posePub_;
+   std::string poseTopic_;
+
    gz::sim::Entity actorEntity_;
    double animationFactor_;
    std::chrono::steady_clock::duration lastUpdate_;
@@ -75,4 +81,3 @@ class GazeboRosActorCommand :
 };
 
 } // namespace gazebo_ros_actor_plugin
-
