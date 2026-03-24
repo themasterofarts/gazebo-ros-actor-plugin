@@ -45,7 +45,9 @@ def generate_launch_description():
         name='ros_gz_bridge',
         arguments=[
             '/cmd_vel@geometry_msgs/msg/Twist@gz.msgs.Twist',
-            '/cmd_path@geometry_msgs/msg/PoseArray@gz.msgs.Pose_V'
+            '/cmd_path@geometry_msgs/msg/PoseArray@gz.msgs.Pose_V',
+            # NEW: bridge actor pose from gz-sim → ROS 2
+            '/actor/pose@geometry_msgs/msg/PoseStamped@gz.msgs.Pose',
         ],
         output='screen'
     )
